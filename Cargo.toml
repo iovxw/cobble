@@ -1,0 +1,13 @@
+[package]
+name = "cobble"
+version = "0.1.0"
+authors = ["iovxw <iovxw@outlook.com>"]
+edition = "2018"
+
+[dependencies]
+ozelot = "0.8"
+getopts = "0.2"
+rpassword = "2.1"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
