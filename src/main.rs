@@ -18,51 +18,7 @@ use structopt::StructOpt;
 fn main() {
     let opt = Opt::from_args();
     let mut client = if !opt.offline {
-        let account = opt.account; // https://github.com/rust-lang/rust/issues/53488
-        let ask_passwd = || {
-            let password = rpassword::prompt_password_stdout("Enter password: ").unwrap();
-            mojang::Authenticate::new(account, password)
-                .perform()
-                .unwrap()
-        };
-        let auth = if let Some(config_path) = opt.profile {
-            let config_path = Path::new(&config_path);
-            let auth = if config_path.exists() {
-                println!("Reading profile...");
-                let config = read_to_string(&config_path).expect("failed to read profile");
-                let config: AuthProfile = serde_json::from_str(&config).expect("");
-                let validate = mojang::AuthenticateValidate::new(
-                    config.access_token.clone(),
-                    config.client_token.clone(),
-                )
-                .perform()
-                .is_ok();
-                if validate {
-                    println!("Valid profile!");
-                    config.into()
-                } else {
-                    println!("Outdated profile, refreshing..");
-                    mojang::AuthenticateRefresh::new(
-                        config.access_token,
-                        config.client_token.expect(""),
-                        true,
-                    )
-                    .perform()
-                    .unwrap_or_else(|e| {
-                        println!("Failed to refresh profile({}), please re-login.", e);
-                        ask_passwd()
-                    })
-                }
-            } else {
-                println!("Profile doesn't exists, please login.");
-                ask_passwd()
-            };
-            let file = File::create(&config_path).expect("");
-            serde_json::to_writer_pretty(&file, &AuthProfile::from(auth.clone())).expect("");
-            auth
-        } else {
-            ask_passwd()
-        };
+        let auth = authenticate(opt.account, opt.profile);
         println!("Authentication successful!, connecting to server...");
         match Client::connect_authenticated(&opt.server.host, opt.server.port, &auth) {
             Ok(x) => x,
@@ -72,6 +28,7 @@ fn main() {
             }
         }
     } else {
+        println!("Connecting to server...");
         match Client::connect_unauthenticated(&opt.server.host, opt.server.port, &opt.account) {
             Ok(x) => x,
             Err(e) => {
@@ -168,6 +125,53 @@ impl fmt::Display for ServerAddress {
     }
 }
 
+fn authenticate(account: String, profile: Option<String>) -> mojang::AuthenticationResponse {
+    let ask_passwd = || {
+        let password = rpassword::prompt_password_stdout("Enter password: ").unwrap();
+        mojang::Authenticate::new(account, password)
+            .perform()
+            .unwrap()
+    };
+    if let Some(config_path) = profile {
+        let config_path = Path::new(&config_path);
+        let auth = if config_path.exists() {
+            println!("Reading profile...");
+            let config = read_to_string(&config_path).expect("failed to read profile");
+            let config: AuthProfile = serde_json::from_str(&config).expect("");
+            let validate = mojang::AuthenticateValidate::new(
+                config.access_token.clone(),
+                config.client_token.clone(),
+            )
+            .perform()
+            .is_ok();
+            if validate {
+                println!("Valid profile!");
+                config.into()
+            } else {
+                println!("Outdated profile, refreshing..");
+                mojang::AuthenticateRefresh::new(
+                    config.access_token,
+                    config.client_token.expect(""),
+                    true,
+                )
+                .perform()
+                .unwrap_or_else(|e| {
+                    println!("Failed to refresh profile({}), please re-login.", e);
+                    ask_passwd()
+                })
+            }
+        } else {
+            println!("Profile doesn't exists, please login.");
+            ask_passwd()
+        };
+        let file = File::create(&config_path).expect("");
+        serde_json::to_writer_pretty(&file, &AuthProfile::from(auth.clone())).expect("");
+        auth
+    } else {
+        ask_passwd()
+    }
+}
+
 fn read_stdin(tx: Sender<String>) {
     loop {
         let mut tmp = String::new();
@@ -216,9 +220,9 @@ struct NameUUID {
     id: String,
     /// Name of the player at the present point in time
     name: String,
-    #[serde(default = "always_false")]
+    #[serde(default)]
     legacy: bool,
-    #[serde(default = "always_false")]
+    #[serde(default)]
     demo: bool,
 }
 
@@ -242,9 +246,4 @@ impl From<mojang::NameUUID> for NameUUID {
             demo: uuid.demo,
         }
     }
-}
-
-/// For use with Serde default values
-fn always_false() -> bool {
-    false
 }
