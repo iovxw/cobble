@@ -1,7 +1,10 @@
+use std::fmt;
 use std::fs::{read_to_string, File};
 use std::io;
+use std::num::ParseIntError;
 use std::path::Path;
 use std::process::exit;
+use std::str::FromStr;
 use std::sync::mpsc::{channel, Sender};
 use std::{thread, time};
 
@@ -12,32 +15,13 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json;
 use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
-struct Opt {
-    /// Your username
-    #[structopt(short = "u")]
-    username: String,
-    /// The server's hostname
-    #[structopt(short = "h")]
-    host: String,
-    /// The server's port
-    #[structopt(short = "p", default_value = "25566")]
-    port: u16,
-    /// Offline mode
-    offline: bool,
-    /// Path to profile
-    #[structopt(short = "c")]
-    profile: Option<String>,
-}
-
 fn main() {
     let opt = Opt::from_args();
-
     let mut client = if !opt.offline {
-        let username = opt.username; // https://github.com/rust-lang/rust/issues/53488
+        let account = opt.account; // https://github.com/rust-lang/rust/issues/53488
         let ask_passwd = || {
             let password = rpassword::prompt_password_stdout("Enter password: ").unwrap();
-            mojang::Authenticate::new(username, password)
+            mojang::Authenticate::new(account, password)
                 .perform()
                 .unwrap()
         };
@@ -45,7 +29,7 @@ fn main() {
             let config_path = Path::new(&config_path);
             let auth = if config_path.exists() {
                 println!("Reading profile...");
-                let config = read_to_string(&config_path).expect("failed to read config file");
+                let config = read_to_string(&config_path).expect("failed to read profile");
                 let config: AuthProfile = serde_json::from_str(&config).expect("");
                 let validate = mojang::AuthenticateValidate::new(
                     config.access_token.clone(),
@@ -80,20 +64,20 @@ fn main() {
             ask_passwd()
         };
         println!("Authentication successful!, connecting to server...");
-        match Client::connect_authenticated(&opt.host, opt.port, &auth) {
+        match Client::connect_authenticated(&opt.server.host, opt.server.port, &auth) {
             Ok(x) => x,
             Err(e) => {
-                println!("Error connecting to {}:{}: {:?}", opt.host, opt.port, e);
+                println!("Error connecting to {}: {:?}", opt.server, e);
                 exit(1);
             }
         }
     } else {
-        match Client::connect_unauthenticated(&opt.host, opt.port, &opt.username) {
+        match Client::connect_unauthenticated(&opt.server.host, opt.server.port, &opt.account) {
             Ok(x) => x,
             Err(e) => {
                 println!(
-                    "Error connecting unauthenticated to {}:{}: {:?}",
-                    opt.host, opt.port, e
+                    "Error connecting unauthenticated to {}: {:?}",
+                    opt.server, e
                 );
                 exit(1);
             }
@@ -131,6 +115,56 @@ fn main() {
         }
 
         thread::sleep(time::Duration::from_millis(50));
+    }
+}
+
+#[derive(StructOpt, Debug)]
+struct Opt {
+    /// Mojang account
+    #[structopt(short = "u", long)]
+    account: String,
+    /// Server address
+    #[structopt(short = "s", long)]
+    server: ServerAddress,
+    /// Offline mode
+    offline: bool,
+    /// Path to profile
+    #[structopt(short = "c", long)]
+    profile: Option<String>,
+    /// Enable auto-Reconnect
+    #[structopt(short = "r", long)]
+    reconnect: bool,
+}
+
+#[derive(Debug)]
+struct ServerAddress {
+    host: String,
+    port: u16,
+}
+
+impl FromStr for ServerAddress {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.rfind(':').is_some() {
+            let mut iter = s.rsplitn(2, ':');
+            let (port, host) = (
+                u16::from_str(iter.next().unwrap())?,
+                iter.next().unwrap().to_owned(),
+            );
+            Ok(ServerAddress { host, port })
+        } else {
+            Ok(ServerAddress {
+                host: s.to_owned(),
+                port: 25565,
+            })
+        }
+    }
+}
+
+impl fmt::Display for ServerAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
     }
 }
 
