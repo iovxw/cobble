@@ -9,8 +9,7 @@ use std::str::FromStr;
 use std::sync::mpsc::{channel, Sender};
 use std::{thread, time};
 
-use ozelot::clientbound::*;
-use ozelot::{mojang, serverbound, Client};
+use ozelot::{self, clientbound::ClientboundPacket, mojang, serverbound};
 use rpassword;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
@@ -18,29 +17,12 @@ use structopt::StructOpt;
 
 fn main() {
     let opt = Opt::from_args();
-    let mut client = if !opt.offline {
-        let auth = authenticate(opt.account, opt.profile);
-        println!("Authentication successful!, connecting to server...");
-        match Client::connect_authenticated(&opt.server.host, opt.server.port, &auth) {
-            Ok(x) => x,
-            Err(e) => {
-                println!("Error connecting to {}: {:?}", opt.server, e);
-                exit(1);
-            }
-        }
-    } else {
-        println!("Connecting to server...");
-        match Client::connect_unauthenticated(&opt.server.host, opt.server.port, &opt.account) {
-            Ok(x) => x,
-            Err(e) => {
-                println!(
-                    "Error connecting unauthenticated to {}: {:?}",
-                    opt.server, e
-                );
-                exit(1);
-            }
-        }
-    };
+    let mut client = connect_to_server(
+        &opt.account,
+        &opt.server,
+        opt.offline,
+        opt.profile.as_ref().map(|x| &**x),
+    );
 
     println!("Connected!");
 
@@ -50,7 +32,26 @@ fn main() {
     });
 
     'main: loop {
-        let packets = client.read().unwrap();
+        let packets = match client.read() {
+            Ok(p) => p,
+            Err(ref e) if opt.reconnect => {
+                println!("Error: {}", e);
+                println!("Reconnecting...");
+                client = connect_to_server(
+                    &opt.account,
+                    &opt.server,
+                    opt.offline,
+                    opt.profile.as_ref().map(|x| &**x),
+                );
+                println!("Connected!");
+                continue 'main;
+            }
+            Err(e) => {
+                println!("Got error, exiting...");
+                println!("Error: {}", e);
+                return;
+            }
+        };
         let timeout = if packets.is_empty() {
             time::Duration::from_millis(50)
         } else {
@@ -62,10 +63,22 @@ fn main() {
                     let settings = serverbound::ClientSettings::new(get_locale(), 2, 0, true, 0, 0);
                     client.send(settings).unwrap();
                 }
+                ClientboundPacket::PlayDisconnect(ref p) if opt.reconnect => {
+                    println!("Disconnect: {}", p.get_reason());
+                    println!("Reconnecting...");
+                    client = connect_to_server(
+                        &opt.account,
+                        &opt.server,
+                        opt.offline,
+                        opt.profile.as_ref().map(|x| &**x),
+                    );
+                    println!("Connected!");
+                    continue 'main;
+                }
                 ClientboundPacket::PlayDisconnect(ref p) => {
-                    println!("Got disconnect packet, exiting ...");
+                    println!("Got disconnect packet, exiting...");
                     println!("Reason: {}", p.get_reason());
-                    break 'main;
+                    return;
                 }
                 ClientboundPacket::ChatMessage(ref p) => {
                     let msg = p.get_chat();
@@ -133,10 +146,38 @@ impl fmt::Display for ServerAddress {
     }
 }
 
-fn authenticate(account: String, profile: Option<String>) -> mojang::AuthenticationResponse {
+fn connect_to_server(
+    account: &str,
+    server: &ServerAddress,
+    offline_mode: bool,
+    profile: Option<&str>,
+) -> ozelot::Client {
+    if !offline_mode {
+        let auth = authenticate(account, profile);
+        println!("Authentication successful!, connecting to server...");
+        match ozelot::Client::connect_authenticated(&server.host, server.port, &auth) {
+            Ok(x) => x,
+            Err(e) => {
+                println!("Error connecting to {}: {:?}", server, e);
+                exit(1);
+            }
+        }
+    } else {
+        println!("Connecting to server...");
+        match ozelot::Client::connect_unauthenticated(&server.host, server.port, &account) {
+            Ok(x) => x,
+            Err(e) => {
+                println!("Error connecting unauthenticated to {}: {:?}", server, e);
+                exit(1);
+            }
+        }
+    }
+}
+
+fn authenticate(account: &str, profile: Option<&str>) -> mojang::AuthenticationResponse {
     let ask_passwd = || {
         let password = rpassword::prompt_password_stdout("Enter password: ").unwrap();
-        mojang::Authenticate::new(account, password)
+        mojang::Authenticate::new(account.to_owned(), password)
             .perform()
             .unwrap()
     };
