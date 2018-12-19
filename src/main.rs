@@ -1,3 +1,4 @@
+use std::env;
 use std::fmt;
 use std::fs::{read_to_string, File};
 use std::io;
@@ -9,7 +10,7 @@ use std::sync::mpsc::{channel, Sender};
 use std::{thread, time};
 
 use ozelot::clientbound::*;
-use ozelot::{mojang, serverbound, utils, Client};
+use ozelot::{mojang, serverbound, Client};
 use rpassword;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
@@ -50,28 +51,35 @@ fn main() {
 
     'main: loop {
         let packets = client.read().unwrap();
+        let timeout = if packets.is_empty() {
+            time::Duration::from_millis(50)
+        } else {
+            time::Duration::default()
+        };
         for packet in packets {
             match packet {
+                ClientboundPacket::JoinGame(_) => {
+                    let settings = serverbound::ClientSettings::new(get_locale(), 2, 0, true, 0, 0);
+                    client.send(settings).unwrap();
+                }
                 ClientboundPacket::PlayDisconnect(ref p) => {
                     println!("Got disconnect packet, exiting ...");
-                    println!("Reason: {}", utils::chat_to_str(p.get_reason()).unwrap());
+                    println!("Reason: {}", p.get_reason());
                     break 'main;
                 }
                 ClientboundPacket::ChatMessage(ref p) => {
-                    let msg = utils::chat_to_str(p.get_chat()).unwrap();
+                    let msg = p.get_chat();
                     println!("{}", msg);
                 }
                 _ => (),
             }
         }
 
-        if let Ok(msg) = rx.try_recv() {
+        if let Ok(msg) = rx.recv_timeout(timeout) {
             let msg = msg.trim_end().to_string();
             let chat = serverbound::ChatMessage::new(msg);
             client.send(chat).unwrap();
         }
-
-        thread::sleep(time::Duration::from_millis(50));
     }
 }
 
@@ -172,6 +180,13 @@ fn authenticate(account: String, profile: Option<String>) -> mojang::Authenticat
     }
 }
 
+fn get_locale() -> String {
+    match env::var("LANG") {
+        Ok(ref lang) if lang != "C" => lang.split('.').next().unwrap().to_owned(),
+        _ => "en_US".to_owned(),
+    }
+}
+
 fn read_stdin(tx: Sender<String>) {
     loop {
         let mut tmp = String::new();
@@ -253,15 +268,15 @@ mod test {
     use super::*;
     #[test]
     fn server_address() {
-        let r = ServerAddress::from_str("127.0.0.1:25565").unwrap();
+        let r = ServerAddress::from_str("127.0.0.1:25566").unwrap();
         assert_eq!(
             r,
             ServerAddress {
                 host: String::from("127.0.0.1"),
-                port: 25565,
+                port: 25566,
             }
         );
-        assert_eq!(format!("{}", r), "127.0.0.1:25565");
+        assert_eq!(format!("{}", r), "127.0.0.1:25566");
     }
 
     #[test]
