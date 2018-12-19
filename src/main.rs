@@ -1,4 +1,3 @@
-use std::env;
 use std::fs::{read_to_string, File};
 use std::io;
 use std::path::Path;
@@ -6,51 +5,43 @@ use std::process::exit;
 use std::sync::mpsc::{channel, Sender};
 use std::{thread, time};
 
-use getopts;
 use ozelot::clientbound::*;
 use ozelot::{mojang, serverbound, utils, Client};
 use rpassword;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
+use structopt::StructOpt;
 
-use getopts::Options;
+#[derive(StructOpt, Debug)]
+struct Opt {
+    /// Your username
+    #[structopt(short = "u")]
+    username: String,
+    /// The server's hostname
+    #[structopt(short = "h")]
+    host: String,
+    /// The server's port
+    #[structopt(short = "p", default_value = "25566")]
+    port: u16,
+    /// Offline mode
+    offline: bool,
+    /// Path to profile
+    #[structopt(short = "c")]
+    profile: Option<String>,
+}
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    let mut opts = Options::new();
-    opts.reqopt("u", "username", "your username", "C4K3");
-    opts.reqopt(
-        "h",
-        "host",
-        "the server's hostname",
-        "minecraft.example.com",
-    );
-    opts.optopt("p", "port", "the server's port", "25565");
-    opts.optflag(
-        "",
-        "unauthenticated",
-        "connect unauthenticated instead of authenticated",
-    );
-    opts.optopt("c", "config", "profile config file", "auth.json");
-    let matches = opts.parse(&args[1..]).unwrap();
+    let opt = Opt::from_args();
 
-    let username = matches.opt_str("username").expect("unreachable");
-    let host = matches.opt_str("host").expect("unreachable");
-    let port = if let Some(x) = matches.opt_str("port") {
-        x.parse::<u16>().unwrap()
-    } else {
-        25565
-    };
-    let authenticated: bool = matches.opt_present("unauthenticated") == false;
-
-    let mut client = if authenticated {
+    let mut client = if !opt.offline {
+        let username = opt.username; // https://github.com/rust-lang/rust/issues/53488
         let ask_passwd = || {
             let password = rpassword::prompt_password_stdout("Enter password: ").unwrap();
             mojang::Authenticate::new(username, password)
                 .perform()
                 .unwrap()
         };
-        let auth = if let Some(config_path) = matches.opt_str("config") {
+        let auth = if let Some(config_path) = opt.profile {
             let config_path = Path::new(&config_path);
             let auth = if config_path.exists() {
                 println!("Reading profile...");
@@ -89,20 +80,20 @@ fn main() {
             ask_passwd()
         };
         println!("Authentication successful!, connecting to server...");
-        match Client::connect_authenticated(&host, port, &auth) {
+        match Client::connect_authenticated(&opt.host, opt.port, &auth) {
             Ok(x) => x,
             Err(e) => {
-                println!("Error connecting to {}:{}: {:?}", host, port, e);
+                println!("Error connecting to {}:{}: {:?}", opt.host, opt.port, e);
                 exit(1);
             }
         }
     } else {
-        match Client::connect_unauthenticated(&host, port, &username) {
+        match Client::connect_unauthenticated(&opt.host, opt.port, &opt.username) {
             Ok(x) => x,
             Err(e) => {
                 println!(
                     "Error connecting unauthenticated to {}:{}: {:?}",
-                    host, port, e
+                    opt.host, opt.port, e
                 );
                 exit(1);
             }
