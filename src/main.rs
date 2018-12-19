@@ -93,7 +93,7 @@ struct Opt {
     reconnect: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct ServerAddress {
     host: String,
     port: u16,
@@ -245,5 +245,35 @@ impl From<mojang::NameUUID> for NameUUID {
             legacy: uuid.legacy,
             demo: uuid.demo,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn server_address() {
+        let r = ServerAddress::from_str("127.0.0.1:25565").unwrap();
+        assert_eq!(
+            r,
+            ServerAddress {
+                host: String::from("127.0.0.1"),
+                port: 25565,
+            }
+        );
+        assert_eq!(format!("{}", r), "127.0.0.1:25565");
+    }
+
+    #[test]
+    fn server_address_default_port() {
+        let r = ServerAddress::from_str("127.0.0.1").unwrap();
+        assert_eq!(
+            r,
+            ServerAddress {
+                host: "127.0.0.1".into(),
+                port: 25565
+            }
+        );
+        assert_eq!(format!("{}", r), "127.0.0.1:25565");
     }
 }
