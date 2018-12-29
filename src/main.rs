@@ -11,9 +11,11 @@ use std::{thread, time};
 
 use ozelot::{self, clientbound::ClientboundPacket, mojang, serverbound};
 use rpassword;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json;
 use structopt::StructOpt;
+
+mod chat;
 
 fn main() {
     let opt = Opt::from_args();
@@ -36,6 +38,7 @@ fn main() {
             Ok(p) => p,
             Err(ref e) if opt.reconnect => {
                 println!("Error: {}", e);
+                thread::sleep(time::Duration::from_secs(2));
                 println!("Reconnecting...");
                 client = connect_to_server(
                     &opt.account,
@@ -64,7 +67,9 @@ fn main() {
                     client.send(settings).unwrap();
                 }
                 ClientboundPacket::PlayDisconnect(ref p) if opt.reconnect => {
-                    println!("Disconnect: {}", p.get_reason());
+                    let reason: chat::Component = serde_json::from_str(p.get_reason()).unwrap();
+                    println!("Disconnect: {}", reason);
+                    thread::sleep(time::Duration::from_secs(2));
                     println!("Reconnecting...");
                     client = connect_to_server(
                         &opt.account,
@@ -77,11 +82,12 @@ fn main() {
                 }
                 ClientboundPacket::PlayDisconnect(ref p) => {
                     println!("Got disconnect packet, exiting...");
-                    println!("Reason: {}", p.get_reason());
+                    let reason: chat::Component = serde_json::from_str(p.get_reason()).unwrap();
+                    println!("Reason: {}", reason);
                     return;
                 }
                 ClientboundPacket::ChatMessage(ref p) => {
-                    let msg = p.get_chat();
+                    let msg: chat::Component = serde_json::from_str(p.get_chat()).unwrap();
                     println!("{}", msg);
                 }
                 _ => (),
