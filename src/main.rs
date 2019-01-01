@@ -1,3 +1,6 @@
+#![feature(slice_patterns)]
+
+use std::borrow::Cow;
 use std::env;
 use std::fmt;
 use std::fs::{read_to_string, File};
@@ -19,7 +22,7 @@ mod chat;
 
 fn main() {
     let opt = Opt::from_args();
-    let mut client = connect_to_server(
+    let (mut client, mut username) = connect_to_server(
         &opt.account,
         &opt.server,
         opt.offline,
@@ -40,12 +43,14 @@ fn main() {
                 println!("Error: {}", e);
                 thread::sleep(time::Duration::from_secs(2));
                 println!("Reconnecting...");
-                client = connect_to_server(
+                let x = connect_to_server(
                     &opt.account,
                     &opt.server,
                     opt.offline,
                     opt.profile.as_ref().map(|x| &**x),
                 );
+                client = x.0;
+                username = x.1;
                 println!("Connected!");
                 continue 'main;
             }
@@ -71,23 +76,41 @@ fn main() {
                     println!("Disconnect: {}", reason);
                     thread::sleep(time::Duration::from_secs(2));
                     println!("Reconnecting...");
-                    client = connect_to_server(
+                    let x = connect_to_server(
                         &opt.account,
                         &opt.server,
                         opt.offline,
                         opt.profile.as_ref().map(|x| &**x),
                     );
+                    client = x.0;
+                    username = x.1;
                     println!("Connected!");
                     continue 'main;
                 }
-                ClientboundPacket::PlayDisconnect(ref p) => {
+                ClientboundPacket::PlayDisconnect(p) => {
                     println!("Got disconnect packet, exiting...");
                     let reason: chat::Component = serde_json::from_str(p.get_reason()).unwrap();
                     println!("Reason: {}", reason);
                     return;
                 }
-                ClientboundPacket::ChatMessage(ref p) => {
+                ClientboundPacket::ChatMessage(p) => {
                     let msg: chat::Component = serde_json::from_str(p.get_chat()).unwrap();
+                    if let chat::Component::Translation(chat::TranslationComponent {
+                        translate,
+                        with,
+                        ..
+                    }) = &msg
+                    {
+                        if let [chat::Component::String(chat::StringComponent::Mixed {
+                            text: name,
+                            ..
+                        }), ..] = with.as_slice()
+                        {
+                            if translate == "chat.type.text" && name == &*username {
+                                continue;
+                            }
+                        }
+                    }
                     println!("{}", msg);
                 }
                 _ => (),
@@ -95,7 +118,6 @@ fn main() {
         }
 
         if let Ok(msg) = rx.recv_timeout(timeout) {
-            let msg = msg.trim_end().to_string();
             let chat = serverbound::ChatMessage::new(msg);
             client.send(chat).unwrap();
         }
@@ -152,17 +174,17 @@ impl fmt::Display for ServerAddress {
     }
 }
 
-fn connect_to_server(
-    account: &str,
+fn connect_to_server<'a>(
+    account: &'a str,
     server: &ServerAddress,
     offline_mode: bool,
     profile: Option<&str>,
-) -> ozelot::Client {
+) -> (ozelot::Client, Cow<'a, str>) {
     if !offline_mode {
         let auth = authenticate(account, profile);
         println!("Authentication successful!, connecting to server...");
         match ozelot::Client::connect_authenticated(&server.host, server.port, &auth) {
-            Ok(x) => x,
+            Ok(x) => (x, Cow::Owned(auth.selectedProfile.name)),
             Err(e) => {
                 println!("Error connecting to {}: {:?}", server, e);
                 exit(1);
@@ -171,7 +193,7 @@ fn connect_to_server(
     } else {
         println!("Connecting to server...");
         match ozelot::Client::connect_unauthenticated(&server.host, server.port, &account) {
-            Ok(x) => x,
+            Ok(x) => (x, Cow::Borrowed(account)),
             Err(e) => {
                 println!("Error connecting unauthenticated to {}: {:?}", server, e);
                 exit(1);
