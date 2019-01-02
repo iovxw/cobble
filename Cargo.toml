@@ -5,7 +5,7 @@ authors = ["iovxw <iovxw@outlook.com>"]
 edition = "2018"
 
 [dependencies]
-ozelot = "0.8"
+ozelot = { version = "0.8", git = "https://github.com/C4K3/Ozelot.git" }
 structopt = "0.2"
 rpassword = "2.1"
 serde = { version = "1.0", features = ["derive"] }
