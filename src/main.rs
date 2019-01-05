@@ -94,24 +94,27 @@ fn main() {
                     return;
                 }
                 ClientboundPacket::ChatMessage(p) => {
-                    let msg: chat::Component = serde_json::from_str(p.get_chat()).unwrap();
-                    if let chat::Component::Translation(chat::TranslationComponent {
-                        translate,
-                        with,
-                        ..
-                    }) = &msg
-                    {
-                        if let [chat::Component::String(chat::StringComponent::Mixed {
-                            text: name,
+                    if let Ok(msg) = serde_json::from_str::<chat::Component>(p.get_chat()) {
+                        if let chat::Component::Translation(chat::TranslationComponent {
+                            translate,
+                            with,
                             ..
-                        }), ..] = with.as_slice()
+                        }) = &msg
                         {
-                            if translate == "chat.type.text" && name == &*username {
-                                continue;
+                            if let [chat::Component::String(chat::StringComponent::Mixed {
+                                text: name,
+                                ..
+                            }), ..] = with.as_slice()
+                            {
+                                if translate == "chat.type.text" && name == &*username {
+                                    continue;
+                                }
                             }
                         }
+                        println!("{}", msg);
+                    } else {
+                        println!("Failed to parse message: {}", p.get_chat());
                     }
-                    println!("{}", msg);
                 }
                 _ => (),
             }
