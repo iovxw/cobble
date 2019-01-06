@@ -97,7 +97,7 @@ fn main() {
                     if let Ok(msg) = serde_json::from_str::<chat::Component>(p.get_chat()) {
                         if let chat::Component::Translation(chat::TranslationComponent {
                             translate,
-                            with,
+                            with: Some(with),
                             ..
                         }) = &msg
                         {

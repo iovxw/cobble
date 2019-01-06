@@ -56,7 +56,7 @@ impl fmt::Display for StringComponent {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct TranslationComponent {
     pub translate: String,
-    pub with: Vec<Component>,
+    pub with: Option<Vec<Component>>,
     #[serde(flatten)]
     pub fields: ComponentFields,
 }
@@ -64,9 +64,11 @@ pub struct TranslationComponent {
 impl fmt::Display for TranslationComponent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[{}]", self.translate)?;
-        for component in &self.with {
-            f.write_char(' ')?;
-            component.fmt(f)?;
+        if let Some(with) = &self.with {
+            for component in with {
+                f.write_char(' ')?;
+                component.fmt(f)?;
+            }
         }
         if let Some(extra) = &self.fields.extra {
             for extra in extra {
@@ -183,7 +185,7 @@ mod test {
 }"#;
         let expect = Component::Translation(TranslationComponent {
             translate: "multiplayer.player.joined".into(),
-            with: vec![Component::String(StringComponent::Mixed {
+            with: Some(vec![Component::String(StringComponent::Mixed {
                 text: "Username".into(),
                 fields: ComponentFields {
                     insertion: Some("Username".into()),
@@ -194,7 +196,7 @@ mod test {
                     }))),
                     ..ComponentFields::default()
                 },
-            })],
+            })]),
             fields: ComponentFields {
                 color: Some("yellow".into()),
                 ..ComponentFields::default()
