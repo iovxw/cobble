@@ -129,7 +129,7 @@ pub enum ClickEvent {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "snake_case", tag = "action", content = "value")]
 pub enum HoverEvent {
-    ShowText(Box<StringComponent>),
+    ShowText(Box<Component>),
     ShowItem(Box<StringComponent>),
     ShowEntity(Box<StringComponent>),
     ShowAchievement(Box<StringComponent>),
